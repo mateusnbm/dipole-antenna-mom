@@ -3,142 +3,215 @@
 #
 
 
+import os
 import math
+import implementation
 import numpy as np
+import scipy.constants
 import matplotlib.pyplot as plot
 
 
-'''
-Constants.
-'''
-
-PI = 3.14
-lightspeed = 3*math.pow(10, 8)
-electric_permittivity_vacuum = 8.85*math.pow(10, -12)
-magnetic_permeability_vacuum = 4*PI*math.pow(10, -7)
-
-
-'''
-Parameters.
-'''
-
 frequency  = 300*math.pow(10, 6)
-angular_frequency = 2*PI*frequency
-
-wavelength = float(lightspeed)/frequency
-wavenumber = (2*PI)/wavelength
-
-antenna_length = wavelength#*(0.5)
-antenna_radius = wavelength*math.pow(10, -5)
-
-segments_count  = 29 #19  #7 #3 #19
-powered_segment = 15 #10  #4 #2 #10
-half_base_width = float(antenna_length)/(segments_count+1)
-
-electric_permittivity = electric_permittivity_vacuum
-magnetic_permeability = magnetic_permeability_vacuum
+wavelength = float(scipy.constants.c)/frequency
 
 
 '''
-Initialize matrices.
+Plot the current distribution of a half-wavelength dipole antenna
+along the z axis using 3, 7 and 19 triangular base functions. Also,
+print the input impedance of the configurations.
 '''
 
-Z = np.zeros((segments_count, segments_count), dtype=np.complex)
-V = np.zeros((segments_count, 1), dtype=np.complex)
+plots = []
+impedances = []
 
+segments_count = [3, 7, 19]
+antenna_length = wavelength*(0.5)
+antenna_radius = wavelength*math.pow(10, -4)
 
-'''
-Calculate the voltages column matrix (V).
-'''
+for count in segments_count:
 
-V[powered_segment-1][0] = np.complex(0, -(angular_frequency*electric_permittivity))
+    powered_segment = (count//2)+1
+    half_base_width = float(antenna_length)/(count+1)
 
+    I = implementation.solve_dipole_antenna_mom(
+        frequency=frequency,
+        antenna_length=antenna_length,
+        antenna_radius=antenna_radius,
+        segments_count=count,
+        powered_segment=powered_segment
+    )
 
-'''
-Calculate the impedance matrix.
-'''
+    I_in = I[powered_segment-1]
+    Z_in = 1/I_in
 
-def phi(m, n):
+    I_absolute = np.absolute(I)
+    I_mV = [(i*1000) for i in I_absolute]
+    I_mV = [0] + I_mV + [0]
 
-    if m == n:
+    x_neg = [ ( ((n*half_base_width)-(antenna_length/2)) / wavelength)  for n in range((count+2)//2)]
+    x_pos = [-x for x in x_neg]
+    x_rev = [x for x in reversed(x_pos)]
+    x = x_neg + [0] + x_rev
 
-        a = (1.0/(2*PI*half_base_width))
-        b = math.log(half_base_width/antenna_radius)
-        c = a * b
-
-        d = (1/(4*PI))
-        e = np.complex(0, wavenumber)
-        f = d * e
-
-        return c - f
-
-    else:
-
-        z_m = (m*half_base_width) - (antenna_length/2)
-        z_n = (n*half_base_width) - (antenna_length/2)
-
-        a = math.pow((z_m - z_n), 2)
-        b = math.pow(antenna_radius, 2)
-        c = math.sqrt(a + b)
-
-        d = np.complex(0, -(wavenumber*c))
-        e = np.exp(d)
-
-        f = 4*PI*c
-
-        return e / f
-
-for m in range(segments_count):
-
-    for n in range(segments_count):
-
-        a = phi((m-0.5), (n-0.5))
-        b = phi((m-0.5), (n+0.5))
-        c = phi((m+0.5), (n-0.5))
-        d = phi((m+0.5), (n+0.5))
-
-        k = math.pow(wavenumber, 2)
-        A_mn = math.pow(half_base_width, 2) * phi(m, n)
-        O_mn = a - b - c + d
-
-        Z[m][n] = (k*A_mn) - O_mn
-
-
-'''
-Solve linear system (find currents).
-'''
-
-I = np.linalg.solve(Z, V)
-
-
-'''
-Plot the current values along the z axis.
-'''
-
-I_absolute = np.absolute(I)
-I_mV = [(i*1000) for i in I_absolute]
-
-#x = [-0.25, -0.15, 0, 0.15, 0.25] #[-0.25, -0.2, -0.15, -0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2, 0.25]
-
-I_mV = [0] + I_mV + [0]
-segments_count += 2
-
-x_neg = [ ( ((n*half_base_width)-(antenna_length/2)) / wavelength)  for n in range((segments_count)//2)]
-x_pos = [-x for x in x_neg]
-x_rev = [x for x in reversed(x_pos)]
-
-x = x_neg + [0] + x_rev
-
-for i in range(len(x)):
-    print(str(x[i]) + " " + str(I_mV[i]))
+    plots.append([x, I_mV])
+    impedances.append(Z_in)
 
 plot.figure()
-plot.plot(x, I_mV, "s-")
-plot.show()
+plot.plot(plots[0][0], plots[0][1], "g-+")
+plot.plot(plots[1][0], plots[1][1], "b-x")
+plot.plot(plots[2][0], plots[2][1], "r-")
+plot.legend(["N=3", "N=7", "N=19"], loc="upper right")
+plot.title("Current Distribution (L = λ/2)")
+plot.xlabel("Z/λ")
+plot.ylabel("|I| (mA)")
+plot.savefig("graphs/half-wavelength-currents.pdf", bbox_inches="tight")
+
+print("")
+print("Half-wavelength dipole antenna input impedance:")
+for i in range(len(segments_count)):
+    print(format(segments_count[i], '02d') + " " + str(impedances[i]))
+
+'''
+Plot the inpute impedance active and reactive components for a
+half-wavelength dipole antenna using 3..49 triangular base functions.
+'''
+
+actives = []
+reactives = []
+
+segments_count = [x for x in range(3, 50) if (x%2) != 0]
+antenna_length = wavelength*(0.5)
+antenna_radius = wavelength*math.pow(10, -4)
+
+for count in segments_count:
+
+    powered_segment = (count//2)+1
+    half_base_width = float(antenna_length)/(count+1)
+
+    I = implementation.solve_dipole_antenna_mom(
+        frequency=frequency,
+        antenna_length=antenna_length,
+        antenna_radius=antenna_radius,
+        segments_count=count,
+        powered_segment=powered_segment
+    )
+
+    I_in = I[powered_segment-1]
+    Z_in = 1/I_in
+
+    actives.append([count, Z_in.real])
+    reactives.append([count, Z_in.imag])
+
+plot.figure()
+plot.plot([x[0] for x in actives], [x[1] for x in actives], "g-")
+plot.plot([x[0] for x in reactives], [x[1] for x in reactives], "b-")
+plot.legend(["R (Ω)", "X (Ω)"], loc="center right")
+plot.title("Input Impedance (L = λ/2)")
+plot.xlabel("Z/λ")
+plot.savefig("graphs/half-wavelength-impedances.pdf", bbox_inches="tight")
 
 
 '''
-Plot antenna input impedance.
+Plot the current distribution of a wavelength dipole antenna along
+the z axis using 3, 7 and 19 triangular base functions. Also, print
+the input impedance of the configurations.
 '''
 
-# ...
+plots = []
+impedances = []
+
+segments_count = [3, 7, 19]
+antenna_length = wavelength
+antenna_radius = wavelength*math.pow(10, -4)
+
+for count in segments_count:
+
+    powered_segment = (count//2)+1
+    half_base_width = float(antenna_length)/(count+1)
+
+    I = implementation.solve_dipole_antenna_mom(
+        frequency=frequency,
+        antenna_length=antenna_length,
+        antenna_radius=antenna_radius,
+        segments_count=count,
+        powered_segment=powered_segment
+    )
+
+    I_in = I[powered_segment-1]
+    Z_in = 1/I_in
+
+    I_absolute = np.absolute(I)
+    I_mV = [(i*1000) for i in I_absolute]
+    I_mV = [0] + I_mV + [0]
+
+    x_neg = [ ( ((n*half_base_width)-(antenna_length/2)) / wavelength)  for n in range((count+2)//2)]
+    x_pos = [-x for x in x_neg]
+    x_rev = [x for x in reversed(x_pos)]
+    x = x_neg + [0] + x_rev
+
+    plots.append([x, I_mV])
+    impedances.append(Z_in)
+
+plot.figure()
+plot.plot(plots[0][0], plots[0][1], "g-+")
+plot.plot(plots[1][0], plots[1][1], "b-x")
+plot.plot(plots[2][0], plots[2][1], "r-")
+plot.legend(["N=3", "N=7", "N=19"], loc="upper right")
+plot.title("Current Distribution (L = λ)")
+plot.xlabel("Z/λ")
+plot.ylabel("|I| (mA)")
+plot.savefig("graphs/wavelength-currents.pdf", bbox_inches="tight")
+
+print("")
+print("Wavelength dipole antenna input impedance:")
+for i in range(len(segments_count)):
+    print(format(segments_count[i], '02d') + " " + str(impedances[i]))
+print("")
+
+
+'''
+Plot the inpute impedance active and reactive components for a
+wavelength dipole antenna using 3..49 triangular base functions.
+'''
+
+actives = []
+reactives = []
+
+segments_count = [x for x in range(3, 50) if (x%2) != 0]
+antenna_length = wavelength
+antenna_radius = wavelength*math.pow(10, -4)
+
+for count in segments_count:
+
+    powered_segment = (count//2)+1
+    half_base_width = float(antenna_length)/(count+1)
+
+    I = implementation.solve_dipole_antenna_mom(
+        frequency=frequency,
+        antenna_length=antenna_length,
+        antenna_radius=antenna_radius,
+        segments_count=count,
+        powered_segment=powered_segment
+    )
+
+    I_in = I[powered_segment-1]
+    Z_in = 1/I_in
+
+    actives.append([count, Z_in.real])
+    reactives.append([count, Z_in.imag])
+
+plot.figure()
+plot.plot([x[0] for x in actives], [x[1] for x in actives], "g-")
+plot.plot([x[0] for x in reactives], [x[1] for x in reactives], "b-")
+plot.legend(["R (Ω)", "X (Ω)"], loc="center right")
+plot.title("Input Impedance (L = λ/2)")
+plot.xlabel("Z/λ")
+plot.savefig("graphs/wavelength-impedances.pdf", bbox_inches="tight")
+
+
+'''
+Delete bytecode files and the cache folder.
+'''
+
+os.system("find . -type f -name \"*.pyc\" -delete")
+os.system("rm -rf __pycache__")
